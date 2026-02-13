@@ -21,64 +21,58 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Verify EC2 instance is running
+        shell: bash
         run: |
-          echo "Checking EC2 instance ${{ vars.EC2_INSTANCE_ID }}..."
+          set -euo pipefail
 
-          STATE=$(aws ec2 describe-instances --instance-ids "${{ vars.EC2_INSTANCE_ID }}" --query 'Reservations[0].Instances[0].State.Name' --output text)
+          echo "Checking EC2 instance ${{ vars.EC2_INSTANCE_ID }}..."
+          STATE="$(aws ec2 describe-instances \
+            --instance-ids "${{ vars.EC2_INSTANCE_ID }}" \
+            --query "Reservations[0].Instances[0].State.Name" \
+            --output text)"
 
           echo "Instance state: $STATE"
 
-          if [ "$STATE" = "running" ]; then
-            echo "EC2 instance is running"
-          else
+          if [[ "$STATE" != "running" ]]; then
             echo "EC2 instance is not running (state: $STATE)"
             exit 1
           fi
 
-      - name: Verify Flask API is responding
+          echo "EC2 instance is running ✅"
+
+      - name: Verify Flask API is responding (port 80)
+        shell: bash
         run: |
-          echo "Testing Flask server at ${{ vars.EC2_PUBLIC_IP }}..."
+          set -euo pipefail
 
-          # Test health endpoint (expects HTTP 200)
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "http://${{ vars.EC2_PUBLIC_IP }}/health" --max-time 10 || echo "000")
+          IP="${{ vars.EC2_PUBLIC_IP }}"
+          URL="http://${IP}/health"
 
-          if [ "$RESPONSE" = "200" ]; then
-            echo "Health endpoint returned HTTP 200"
-          else
-            echo "Health endpoint returned HTTP $RESPONSE"
+          echo "Requesting: $URL"
+
+          # Get HTTP status + save body
+          HTTP_CODE="$(curl -sS -o /tmp/health.json -w "%{http_code}" "$URL" --max-time 10 || true)"
+          echo "HTTP code: $HTTP_CODE"
+          echo "Body:"
+          cat /tmp/health.json || true
+
+          if [[ "$HTTP_CODE" != "200" ]]; then
+            echo "Health endpoint did not return 200"
             exit 1
           fi
 
-          # Verify JSON response contains required fields
-          HEALTH_JSON=$(curl -s "http://${{ vars.EC2_PUBLIC_IP }}/health" --max-time 10)
-          echo "Response: $HEALTH_JSON"
+          HEALTH_JSON="$(cat /tmp/health.json || true)"
 
-          if echo "$HEALTH_JSON" | grep -q '"status"'; then
-            echo "Response contains 'status' field"
-          else
-            echo "Response missing 'status' field"
-            exit 1
-          fi
+          # Verify JSON response contains required fields (simple grep checks)
+          echo "$HEALTH_JSON" | grep -q "\"status\"" || (echo "Missing 'status' field" && exit 1)
+          echo "$HEALTH_JSON" | grep -q "\"timestamp\"" || (echo "Missing 'timestamp' field" && exit 1)
+          echo "$HEALTH_JSON" | grep -q "\"hostname\"" || (echo "Missing 'hostname' field" && exit 1)
 
-          if echo "$HEALTH_JSON" | grep -q '"timestamp"'; then
-            echo "Response contains 'timestamp' field"
-          else
-            echo "Response missing 'timestamp' field"
-            exit 1
-          fi
-
-          if echo "$HEALTH_JSON" | grep -q '"hostname"'; then
-            echo "Response contains 'hostname' field"
-          else
-            echo "Response missing 'hostname' field"
-            exit 1
-          fi
+          echo "Flask API responding with required fields ✅"
 
       - name: Summary
+        shell: bash
         run: |
-          echo ""
-          echo "============================================"
+          echo "========================================"
           echo "All checks passed!"
-          echo "============================================"
-          echo "EC2 instance is running"
-          echo "Flask API responding with valid JSON"
+          echo "========================================"
