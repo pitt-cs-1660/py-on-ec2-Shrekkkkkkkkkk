@@ -45,28 +45,27 @@ jobs:
         run: |
           set -euo pipefail
 
-          IP="${{ vars.EC2_PUBLIC_IP }}"
+          # Strip any hidden whitespace/newlines just in case
+          IP="$(echo "${{ vars.EC2_PUBLIC_IP }}" | tr -d '[:space:]')"
           URL="http://${IP}/health"
 
-          echo "Requesting: $URL"
+          echo "Requesting: ${URL}"
 
-          # Get HTTP status + save body
-          HTTP_CODE="$(curl -sS -o /tmp/health.json -w "%{http_code}" "$URL" --max-time 10 || true)"
-          echo "HTTP code: $HTTP_CODE"
+          HTTP_CODE="$(curl -sS -o /tmp/health.json -w "%{http_code}" "${URL}" --max-time 10 || true)"
+          echo "HTTP code: ${HTTP_CODE}"
           echo "Body:"
           cat /tmp/health.json || true
 
-          if [[ "$HTTP_CODE" != "200" ]]; then
+          if [[ "${HTTP_CODE}" != "200" ]]; then
             echo "Health endpoint did not return 200"
             exit 1
           fi
 
           HEALTH_JSON="$(cat /tmp/health.json || true)"
 
-          # Verify JSON response contains required fields (simple grep checks)
-          echo "$HEALTH_JSON" | grep -q "\"status\"" || (echo "Missing 'status' field" && exit 1)
-          echo "$HEALTH_JSON" | grep -q "\"timestamp\"" || (echo "Missing 'timestamp' field" && exit 1)
-          echo "$HEALTH_JSON" | grep -q "\"hostname\"" || (echo "Missing 'hostname' field" && exit 1)
+          echo "${HEALTH_JSON}" | grep -q "\"status\"" || (echo "Missing 'status' field" && exit 1)
+          echo "${HEALTH_JSON}" | grep -q "\"timestamp\"" || (echo "Missing 'timestamp' field" && exit 1)
+          echo "${HEALTH_JSON}" | grep -q "\"hostname\"" || (echo "Missing 'hostname' field" && exit 1)
 
           echo "Flask API responding with required fields ✅"
 
